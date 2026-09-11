@@ -1,0 +1,15 @@
+path: C:/DATASCIENCE/Maxica-App/datasets/garbage_classification
+train: train/images
+val: valid/images
+test: test/images
+nc: 7
+names: ["biodegradable", "cardboard", "glass", "metal", "paper", "plastic", "cloth"]
+
+
+# Training parameters
+epochs: 50
+imgsz: 640
+batch: 16
+max_det: 400
+lr0: 0.001
+save_period: 1

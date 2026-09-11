@@ -1,0 +1,15 @@
+# YOLOv8 Training Configuration
+
+task: detect
+mode: train
+model: yolov8n.pt
+data: C:/DATASCIENCE/datasets/garbage_classification/data.yaml
+
+# Training parameters
+epochs: 50
+imgsz: 640
+batch: 16
+max_det: 400
+lr0: 0.001
+optimizer: AdamW
+save_period: 1
