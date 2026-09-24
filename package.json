@@ -6,7 +6,7 @@
     "@expo/ui": "~57.0.12",
     "@expo/vector-icons": "^15.0.2",
     "expo": "~57.0.15",
-    "expo-camera": "~57.0.4",
+    "expo-camera": "~57.0.5",
     "expo-constants": "~57.0.13",
     "expo-dev-client": "~57.0.16",
     "expo-device": "~57.0.1",
