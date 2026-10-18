@@ -41,3 +41,16 @@ example
 # generated native folders
 /ios
 /android
+node_modules
+
+# YOLO training artifacts
+datasets/
+runs/
+
+.venv/
+yolo_env/
+node_modules/
+runs/
+__pycache__/
+.env
+*.ipynb_checkpoints
