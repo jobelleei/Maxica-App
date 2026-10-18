@@ -1,6 +1,8 @@
+
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, type CameraType } from 'expo-camera';
 import { useRouter } from 'expo-router';
+import { File } from 'expo-file-system';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -19,6 +21,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const LOGO_ICON = require('../../assets/images/icon.png');
 
+// Replace this example IP with your Mac's actual IP address.
+const YOLO_API_URL = 'http://192.168.1.11:8000/predict';
+
+type WasteDetection = {
+  label: string;
+  confidence: number;
+  class_id: number;
+  box: number[];
+};
+
+type WasteAnalysis = {
+  success: boolean;
+  label: string;
+  confidence: number;
+  detections: WasteDetection[];
+};
+
 const COLORS = {
   background: '#DCEDFC',
   navy: '#1A1A8C',
@@ -27,12 +46,37 @@ const COLORS = {
   scanLine: '#7FE0FF',
 };
 
-// TODO: replace with your real waste-identification call (API / ML model).
-// Receives the captured photo URI and should resolve with the result.
-async function analyzeWaste(photoUri?: string) {
-  console.log('Scanning photo:', photoUri);
-  await new Promise<void>((resolve) => setTimeout(() => resolve(), 2500));
-  return { label: 'Unknown item' };
+
+async function analyzeWaste(photoUri?: string): Promise<WasteAnalysis> {
+  if (!photoUri) {
+    throw new Error('No photo was captured.');
+  }
+
+  // Create a proper file object from the camera photo.
+  const photoFile = new File(photoUri);
+
+  const formData = new FormData();
+  formData.append('file', photoFile);
+
+  const response = await fetch(YOLO_API_URL, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `YOLO API error (${response.status}): ${errorText}`
+    );
+  }
+
+  const result = (await response.json()) as WasteAnalysis;
+
+  if (!result.success) {
+    throw new Error('The model could not analyze the photo.');
+  }
+
+  return result;
 }
 
 export default function ScanScreen() {
@@ -81,7 +125,7 @@ export default function ScanScreen() {
 
   const toggleFacing = () => {
     if (scanning) return;
-    if (facing === 'back') setFlashOn(false); // front camera has no flash
+    if (facing === 'back') setFlashOn(false);
     setFacing(facing === 'back' ? 'front' : 'back');
   };
 
@@ -92,13 +136,54 @@ export default function ScanScreen() {
 
   const handleCapture = async () => {
     if (scanning || !cameraRef.current) return;
+
     setScanning(true);
+
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.7,
+      });
+
       const result = await analyzeWaste(photo?.uri);
-      Alert.alert('Scan complete', `Detected: ${result.label}`);
-    } catch {
-      Alert.alert('Scan failed', 'Something went wrong. Please try again.');
+
+      if (result.detections.length === 0) {
+        Alert.alert(
+          'No waste detected',
+          'The model could not identify an item in this photo. Try again with better lighting and the item clearly visible.'
+        );
+        return;
+      }
+
+      const confidencePercent = Math.round(result.confidence * 100);
+
+      const otherDetections = result.detections
+        .slice(1, 5)
+        .map(
+          (item) =>
+            `• ${item.label} (${Math.round(item.confidence * 100)}%)`
+        );
+
+      const message = [
+        `Detected: ${result.label}`,
+        `Confidence: ${confidencePercent}%`,
+        ...(otherDetections.length
+          ? ['', 'Other detections:', ...otherDetections]
+          : []),
+      ].join('\n');
+
+      Alert.alert('Scan complete', message);
+    } catch (error) {
+      console.error('Waste scan error:', error);
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Something went wrong. Please try again.';
+
+      Alert.alert(
+        'Scan failed',
+        `${message}\n\nCheck that the YOLO server is running and your phone can reach your Mac.`
+      );
     } finally {
       setScanning(false);
     }
@@ -112,8 +197,13 @@ export default function ScanScreen() {
   if (!permission.granted) {
     return (
       <View style={[styles.container, styles.center]}>
-        <Text style={styles.permissionText}>Maxica needs camera access to scan waste items.</Text>
-        <Pressable style={styles.permissionButton} onPress={() => requestPermission()}>
+        <Text style={styles.permissionText}>
+          Maxica needs camera access to scan waste items.
+        </Text>
+        <Pressable
+          style={styles.permissionButton}
+          onPress={() => requestPermission()}
+        >
           <Text style={styles.permissionButtonText}>Allow camera</Text>
         </Pressable>
       </View>
@@ -137,11 +227,20 @@ export default function ScanScreen() {
             onPress={() => router.back()}
             hitSlop={12}
             style={styles.backButton}
-            accessibilityLabel="Go back">
-            <Ionicons name="chevron-back" size={26} color={COLORS.navy} />
+            accessibilityLabel="Go back"
+          >
+            <Ionicons
+              name="chevron-back"
+              size={26}
+              color={COLORS.navy}
+            />
           </Pressable>
           <View style={styles.logoBadge}>
-            <Image source={LOGO_ICON} style={styles.logoImage} resizeMode="cover" />
+            <Image
+              source={LOGO_ICON}
+              style={styles.logoImage}
+              resizeMode="cover"
+            />
           </View>
         </View>
 
@@ -158,10 +257,16 @@ export default function ScanScreen() {
             {scanning && (
               <View style={styles.scanOverlay} pointerEvents="none">
                 <Animated.View
-                  style={[styles.scanLine, { transform: [{ translateY: lineTranslateY }] }]}
+                  style={[
+                    styles.scanLine,
+                    { transform: [{ translateY: lineTranslateY }] },
+                  ]}
                 />
                 <View style={styles.scanPill}>
-                  <ActivityIndicator size="small" color={COLORS.white} />
+                  <ActivityIndicator
+                    size="small"
+                    color={COLORS.white}
+                  />
                   <Text style={styles.scanPillText}>Scanning...</Text>
                 </View>
               </View>
@@ -173,17 +278,31 @@ export default function ScanScreen() {
               onPress={toggleFacing}
               disabled={scanning}
               style={[styles.sideButton, scanning && styles.disabled]}
-              accessibilityLabel="Flip camera">
-              <Ionicons name="camera-reverse-outline" size={26} color={COLORS.navy} />
+              accessibilityLabel="Flip camera"
+            >
+              <Ionicons
+                name="camera-reverse-outline"
+                size={26}
+                color={COLORS.navy}
+              />
             </Pressable>
 
             <Pressable
               onPress={handleCapture}
               disabled={scanning}
-              style={({ pressed }) => [styles.captureRing, pressed && styles.capturePressed]}
-              accessibilityLabel="Capture and scan">
+              style={({ pressed }) => [
+                styles.captureRing,
+                pressed && styles.capturePressed,
+              ]}
+              accessibilityLabel="Capture and scan"
+            >
               <View style={styles.captureInner}>
-                {scanning && <ActivityIndicator size="small" color={COLORS.navy} />}
+                {scanning && (
+                  <ActivityIndicator
+                    size="small"
+                    color={COLORS.navy}
+                  />
+                )}
               </View>
             </Pressable>
 
@@ -195,7 +314,8 @@ export default function ScanScreen() {
                 flashOn && styles.sideButtonActive,
                 flashDisabled && styles.disabled,
               ]}
-              accessibilityLabel="Toggle flash">
+              accessibilityLabel="Toggle flash"
+            >
               <Ionicons
                 name={flashOn ? 'flash' : 'flash-off-outline'}
                 size={26}
@@ -254,7 +374,7 @@ const styles = StyleSheet.create({
   },
   cameraWrapper: {
     width: '100%',
-    aspectRatio: 0.85, // width / height. 1 = square, lower = taller
+    aspectRatio: 0.85,
     borderRadius: 24,
     overflow: 'hidden',
     backgroundColor: '#000000',
